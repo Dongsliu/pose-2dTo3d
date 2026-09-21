@@ -1,0 +1,92 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+pose_transfer_env/
+.venv/
+venv/
+ENV/
+env/
+
+# 模型文件
+models/*.pth
+models/*.onnx
+models/*.pt
+models/configs/*
+!models/download_models.py
+!models/model_config.yaml
+
+# 临时文件
+*.tmp
+*.log
+*.cache
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 测试输出
+tests/output/
+tests/benchmark_results/
+output/
+results/
+
+# Blender
+*.blend1
+*.blend2
+product/PoseRig.blend
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 文档临时文件
+docs/_build/
+docs/.doctrees/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# 配置文件（如包含敏感信息）
+config/local_config.yaml
+config/credentials.json
+
+# 自动生成的配置（包含本地路径）
+config.json
+models/model_config.yaml
+
+# 运行产物
+logs/
+pose.json
+vis.jpg
+viewer/_served/
+viewer/_uploads/
+viewer/_exports/
+*.pose.json
+
+# Optional sample images are kept locally but not committed
+samples/poses/*
+

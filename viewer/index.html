@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pose Viewer</title>
+  <style>
+    :root {
+      --bg: #0c0e13;
+      --panel: #151922;
+      --line: #2a3140;
+      --text: #e8edf5;
+      --muted: #8b95a8;
+      --accent: #6ee7b7;
+      --warn: #fbbf24;
+      --bad: #fb7185;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font: 13px/1.4 ui-sans-serif, system-ui, sans-serif;
+    }
+    .app {
+      display: grid;
+      grid-template-columns: 320px minmax(0, 1fr) minmax(0, 1fr);
+      grid-template-rows: 48px minmax(0, 1fr);
+      height: 100%;
+      overflow: hidden;
+    }
+    header {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      min-height: 0;
+    }
+    header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+    header .hint { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    aside {
+      border-right: 1px solid var(--line);
+      padding: 16px;
+      overflow: auto;
+      min-height: 0;
+      background: #12151c;
+      font-size: 15px;
+      line-height: 1.45;
+    }
+    .drop {
+      border: 1px dashed #3a4458;
+      border-radius: 8px;
+      padding: 16px 12px;
+      text-align: center;
+      color: var(--muted);
+      margin-bottom: 12px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .drop.over { border-color: var(--accent); color: var(--accent); }
+    .stat { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--line); }
+    .stat b { font-variant-numeric: tabular-nums; }
+    .ok { color: var(--accent); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+    .violations { margin-top: 12px; }
+    .violations h3 { font-size: 13px; color: var(--muted); margin: 10px 0 8px; font-weight: 600; }
+    .violations ul { margin: 0; padding-left: 18px; }
+    .violations li { color: var(--muted); font-size: 13px; margin: 0 0 6px; }
+    .stage {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      border-left: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+    }
+    .stage h2 {
+      margin: 0;
+      padding: 8px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      border-bottom: 1px solid var(--line);
+      flex: 0 0 auto;
+    }
+    canvas {
+      flex: 1 1 auto;
+      width: 100%;
+      min-height: 0;
+      display: block;
+      background: #0a0c11;
+    }
+    input[type=file] { display: none; }
+    .toggles { display: flex; flex-wrap: wrap; gap: 10px 12px; margin: 12px 0; }
+    .toggles label { font-size: 14px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+    .toggles input { width: 15px; height: 15px; }
+    button {
+      background: #243044;
+      color: var(--text);
+      border: 0;
+      border-radius: 8px;
+      padding: 9px 12px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover { background: #2d3b52; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    button.primary { background: #0f766e; width: 100%; margin: 8px 0 12px; padding: 12px 12px; font-weight: 600; font-size: 15px; }
+    button.primary:hover { background: #115e59; }
+    button.export { width: 100%; margin: 0 0 12px; border: 1px solid #2f8069; color: #b7f7d9; }
+    button.export:hover { background: #164b42; }
+    .pending { color: var(--warn); font-size: 14px; margin: 8px 0 10px; min-height: 20px; }
+    .gallery h3 { font-size: 13px; color: var(--muted); margin: 14px 0 10px; font-weight: 600; }
+    .gallery-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .gallery-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      cursor: pointer;
+      background: #0c1018;
+      padding: 0;
+      width: 100%;
+      text-align: left;
+    }
+    .gallery-item:hover, .gallery-item.active { border-color: var(--accent); }
+    .gallery-item img { display: block; width: 100%; height: 92px; object-fit: cover; }
+    .gallery-item span { display: block; padding: 7px 8px; font-size: 13px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Pose Viewer</h1>
+      <div class="hint">拖入图片后点「开始检测」。也可直接拖入 pose.json 只预览。</div>
+    </header>
+    <aside>
+      <div class="drop" id="drop">拖入姿势图片 / pose.json<br>或点击选择</div>
+      <input id="file" type="file" accept=".json,image/*" multiple />
+      <div class="pending" id="pending"></div>
+      <button type="button" class="primary" id="detectBtn" disabled>开始检测</button>
+      <button type="button" class="export" id="exportBtn" disabled>导出 FBX</button>
+      <div class="gallery">
+        <h3>示例姿势</h3>
+        <div class="gallery-grid" id="gallery"></div>
+      </div>
+      <div class="toggles">
+        <label><input type="checkbox" id="showFace" /> 脸</label>
+        <label><input type="checkbox" id="showHands" checked /> 手</label>
+        <label><input type="checkbox" id="showScores" /> 分数</label>
+        <label><input type="checkbox" id="showRig" /> 映射成骨骼</label>
+      </div>
+      <button type="button" id="resetCam">对齐图片姿势</button>
+      <div id="stats"></div>
+      <div class="violations">
+        <h3>约束违规</h3>
+        <ul id="violations"></ul>
+      </div>
+    </aside>
+    <section class="stage">
+      <h2>2D</h2>
+      <canvas id="c2d"></canvas>
+    </section>
+    <section class="stage">
+      <h2>3D · 拖动旋转</h2>
+      <canvas id="c3d"></canvas>
+    </section>
+  </div>
+  <script>
+    const BODY_BONES = [
+      [0, 1], [0, 2], [1, 3], [2, 4],
+      [5, 6], [5, 7], [7, 9], [6, 8], [8, 10],
+      [5, 11], [6, 12], [11, 12],
+      [11, 13], [13, 15], [12, 14], [14, 16],
+    ];
+    const RIG_BONES = [
+      ['hip', 'chest'],
+      ['chest', 'neck'],
+      ['neck', 'head'],
+      ['chest', 'lShoulder'],
+      ['lShoulder', 'lElbow'],
+      ['lElbow', 'lWrist'],
+      ['chest', 'rShoulder'],
+      ['rShoulder', 'rElbow'],
+      ['rElbow', 'rWrist'],
+      ['hip', 'lHip'],
+      ['lHip', 'lKnee'],
+      ['lKnee', 'lAnkle'],
+      ['hip', 'rHip'],
+      ['rHip', 'rKnee'],
+      ['rKnee', 'rAnkle'],
+    ];
+    const HAND_BONES = [
+      [0, 1], [1, 2], [2, 3], [3, 4],
+      [0, 5], [5, 6], [6, 7], [7, 8],
+      [0, 9], [9, 10], [10, 11], [11, 12],
+      [0, 13], [13, 14], [14, 15], [15, 16],
+      [0, 17], [17, 18], [18, 19], [19, 20],
+    ];
+
+    let pose = null;
+    let sourceImage = null;
+    let pendingImage = null;
+    let pendingName = '';
+    let detecting = false;
+    let exporting = false;
+    const CAM_ALIGN = { yaw: 0, pitch: 0, dist: 0.82 };
+    let cam = { ...CAM_ALIGN, dragging: false, lx: 0, ly: 0 };
+
+    const drop = document.getElementById('drop');
+    const file = document.getElementById('file');
+    const c2d = document.getElementById('c2d');
+    const c3d = document.getElementById('c3d');
+    const ctx2 = c2d.getContext('2d');
+    const ctx3 = c3d.getContext('3d') || c3d.getContext('2d');
+
+    drop.onclick = () => file.click();
+    file.onchange = (e) => handleFiles(e.target.files);
+    ['dragover', 'dragenter'].forEach((ev) => {
+      drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); });
+    });
+    drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+    drop.addEventListener('drop', (e) => {
+      e.preventDefault();
+      drop.classList.remove('over');
+      handleFiles(e.dataTransfer.files);
+    });
+    document.body.addEventListener('dragover', (e) => e.preventDefault());
+    document.body.addEventListener('drop', (e) => {
+      e.preventDefault();
+      handleFiles(e.dataTransfer.files);
+    });
+
+    ['showFace', 'showHands', 'showScores', 'showRig'].forEach((id) => {
+      document.getElementById(id).onchange = drawAll;
+    });
+    document.getElementById('resetCam').onclick = () => {
+      cam.yaw = CAM_ALIGN.yaw;
+      cam.pitch = CAM_ALIGN.pitch;
+      cam.dist = CAM_ALIGN.dist;
+      draw3d();
+    };
+    document.getElementById('detectBtn').onclick = startDetect;
+    document.getElementById('exportBtn').onclick = exportFbx;
+    loadGallery();
+
+    function setPending(text) {
+      document.getElementById('pending').textContent = text || '';
+    }
+
+    function updateDetectButton() {
+      const btn = document.getElementById('detectBtn');
+      btn.disabled = detecting || !pendingImage;
+      const exportBtn = document.getElementById('exportBtn');
+      exportBtn.disabled = exporting || !pose;
+      exportBtn.textContent = exporting ? '导出中...' : '导出 FBX';
+      btn.textContent = detecting ? '检测中…' : '开始检测';
+    }
+
+    c3d.addEventListener('pointerdown', (e) => {
+      cam.dragging = true; cam.lx = e.clientX; cam.ly = e.clientY; c3d.setPointerCapture(e.pointerId);
+    });
+    c3d.addEventListener('pointerup', () => { cam.dragging = false; });
+    c3d.addEventListener('pointermove', (e) => {
+      if (!cam.dragging) return;
+      cam.yaw += (e.clientX - cam.lx) * 0.01;
+      cam.pitch = Math.max(-0.2, Math.min(1.15, cam.pitch + (e.clientY - cam.ly) * 0.01));
+      cam.lx = e.clientX; cam.ly = e.clientY;
+      draw3d();
+    });
+    c3d.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      cam.dist = Math.max(0.45, Math.min(2.4, cam.dist * (e.deltaY > 0 ? 1.08 : 0.92)));
+      draw3d();
+    }, { passive: false });
+
+    async function handleFiles(files) {
+      for (const f of files) {
+        if (f.name.endsWith('.json') || f.type === 'application/json') {
+          pose = JSON.parse(await f.text());
+          pendingImage = null;
+          pendingName = '';
+          setPending('已加载 JSON，可直接查看。');
+        } else if (f.type.startsWith('image/')) {
+          const url = URL.createObjectURL(f);
+          sourceImage = await loadImage(url);
+          pendingImage = await fileToDataUrl(f);
+          pendingName = f.name;
+          pose = null;
+          setPending(`已选择 ${f.name}，点「开始检测」。`);
+        }
+      }
+      updateDetectButton();
+      renderMeta();
+      drawAll();
+    }
+
+    async function loadGallery() {
+      const el = document.getElementById('gallery');
+      try {
+        const res = await fetch('/api/samples');
+        const data = await res.json();
+        const items = data.items || [];
+        if (!items.length) {
+          el.innerHTML = '<span style="color:#8b95a8;font-size:13px;">把图放到 samples/poses/</span>';
+          return;
+        }
+        el.innerHTML = items.map((item) => `
+          <button type="button" class="gallery-item" data-file="${item.file}">
+            <img src="/samples/${encodeURIComponent(item.file)}" alt="${item.name}" />
+            <span>${item.name}</span>
+          </button>
+        `).join('');
+        el.querySelectorAll('.gallery-item').forEach((btn) => {
+          btn.onclick = () => pickSample(btn.dataset.file, btn);
+        });
+      } catch (err) {
+        el.innerHTML = '<span style="color:#8b95a8;font-size:13px;">启动 view_pose.py 后可点选示例</span>';
+      }
+    }
+
+    async function pickSample(file, btn) {
+      document.querySelectorAll('.gallery-item').forEach((el) => el.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      const url = `/samples/${encodeURIComponent(file)}`;
+      sourceImage = await loadImage(url);
+      const blob = await fetch(url).then((r) => r.blob());
+      pendingImage = await blobToDataUrl(blob);
+      pendingName = file;
+      pose = null;
+      setPending(`已选择 ${file}，点「开始检测」。`);
+      updateDetectButton();
+      renderMeta();
+      drawAll();
+    }
+
+    function blobToDataUrl(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    function fileToDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function startDetect() {
+      if (!pendingImage || detecting) return;
+      detecting = true;
+      updateDetectButton();
+      setPending('正在检测，首次加载模型会慢一些…');
+      try {
+        const res = await fetch('/api/detect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image: pendingImage,
+            filename: pendingName || 'upload.jpg',
+          }),
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || '检测失败');
+        pose = data.pose;
+        if (data.image) sourceImage = await loadImage(data.image);
+        pendingImage = null;
+        setPending('检测完成');
+        cam.yaw = CAM_ALIGN.yaw;
+        cam.pitch = CAM_ALIGN.pitch;
+        cam.dist = CAM_ALIGN.dist;
+      } catch (err) {
+        const offline = String(err).includes('Failed to fetch') || String(err).includes('NetworkError');
+        setPending(offline
+          ? '需要先启动服务：.venv/Scripts/python.exe scripts/view_pose.py'
+          : `检测失败：${err.message || err}`);
+      } finally {
+        detecting = false;
+        updateDetectButton();
+        renderMeta();
+        drawAll();
+      }
+    }
+
+    async function exportFbx() {
+      if (!pose || exporting) return;
+      exporting = true;
+      updateDetectButton();
+      setPending('正在生成 FBX，请稍候...');
+      try {
+        const res = await fetch('/api/export-fbx', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pose, filename: pendingName || 'pose' }),
+        });
+        const type = res.headers.get('content-type') || '';
+        if (!res.ok || type.includes('application/json')) {
+          const data = await res.json();
+          throw new Error(data.error || 'FBX 导出失败');
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${(pendingName || 'pose').replace(/\.[^.]+$/, '')}_pose.fbx`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        setPending('FBX 导出完成');
+      } catch (err) {
+        setPending(`FBX 导出失败：${err.message || err}`);
+      } finally {
+        exporting = false;
+        updateDetectButton();
+      }
+    }
+
+    function loadImage(url) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = url;
+      });
+    }
+
+    function scoreClass(v, good, mid) {
+      if (v >= good) return 'ok';
+      if (v >= mid) return 'warn';
+      return 'bad';
+    }
+
+    function renderMeta() {
+      const el = document.getElementById('stats');
+      const vEl = document.getElementById('violations');
+      if (!pose) { el.innerHTML = ''; vEl.innerHTML = ''; return; }
+      const c2 = pose.confidence_2d ?? 0;
+      const c3 = pose.confidence_3d ?? 0;
+      const cs = pose.constraint_score ?? 0;
+      const stats = pose.stats || {};
+      el.innerHTML = [
+        ['2D 置信度', c2.toFixed(2), scoreClass(c2, 7, 5)],
+        ['3D 深度', c3.toFixed(2), scoreClass(c3, 0.8, 0.6)],
+        ['约束评分', cs.toFixed(2), scoreClass(cs, 0.75, 0.5)],
+        ['有效点', `${stats.valid_keypoints ?? '?'} / ${stats.total_keypoints ?? '?'}`, 'ok'],
+        ['身体', (stats.body_confidence ?? 0).toFixed(2), ''],
+        ['手', (stats.hands_confidence ?? 0).toFixed(2), ''],
+      ].map(([k, v, cls]) => `<div class="stat"><span>${k}</span><b class="${cls}">${v}</b></div>`).join('');
+      const viol = pose.violations || [];
+      vEl.innerHTML = viol.length
+        ? viol.map((x) => `<li>${x.type} · ${x.bone || x.joint} · sev ${Number(x.severity || 0).toFixed(2)}</li>`).join('')
+        : '<li>无</li>';
+    }
+
+    function fitCanvas(c) {
+      const r = c.getBoundingClientRect();
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      c.width = Math.max(1, Math.floor(r.width * dpr));
+      c.height = Math.max(1, Math.floor(r.height * dpr));
+      return dpr;
+    }
+
+    function drawAll() { draw2d(); draw3d(); }
+
+    function draw2d() {
+      const dpr = fitCanvas(c2d);
+      ctx2.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const w = c2d.width / dpr, h = c2d.height / dpr;
+      ctx2.fillStyle = '#0a0c11';
+      ctx2.fillRect(0, 0, w, h);
+      const pts = (pose && pose.keypoints_2d) || [];
+      let imgX = 0, imgY = 0, scale = 1;
+      if (sourceImage) {
+        const iw = sourceImage.width, ih = sourceImage.height;
+        scale = Math.min((w - 16) / iw, (h - 16) / ih);
+        imgX = (w - iw * scale) / 2;
+        imgY = (h - ih * scale) / 2;
+        ctx2.globalAlpha = pose ? 0.72 : 1;
+        ctx2.drawImage(sourceImage, imgX, imgY, iw * scale, ih * scale);
+        ctx2.globalAlpha = 1;
+      } else if (pts.length) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        pts.forEach(([x, y]) => { minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); });
+        const pad = 28;
+        const bw = Math.max(1, maxX - minX), bh = Math.max(1, maxY - minY);
+        scale = Math.min((w - pad * 2) / bw, (h - pad * 2) / bh);
+        imgX = (w - bw * scale) / 2 - minX * scale;
+        imgY = (h - bh * scale) / 2 - minY * scale;
+      }
+      if (!pose) {
+        if (!sourceImage) {
+          ctx2.fillStyle = '#8b95a8';
+          ctx2.fillText('拖入图片后点「开始检测」', 20, 32);
+        }
+        return;
+      }
+      const map = ([x, y]) => [x * scale + imgX, y * scale + imgY];
+      drawSkeleton2(ctx2, pts, map);
+    }
+
+    function mid2(a, b) {
+      return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, ((a[2] || 0) + (b[2] || 0)) / 2];
+    }
+
+    function rigFromPoints(pts) {
+      if (!pts || pts.length < 17) return null;
+      const p = (i) => {
+        const q = pts[i];
+        return q.length > 2 ? q : [q[0], q[1], 0];
+      };
+      const lSh = p(5), rSh = p(6), lHip = p(11), rHip = p(12);
+      const hip = mid2(lHip, rHip);
+      const chest = mid2(lSh, rSh);
+      return {
+        hip, chest,
+        neck: mid2(chest, p(0)),
+        head: p(0),
+        lShoulder: lSh, lElbow: p(7), lWrist: p(9),
+        rShoulder: rSh, rElbow: p(8), rWrist: p(10),
+        lHip, lKnee: p(13), lAnkle: p(15),
+        rHip, rKnee: p(14), rAnkle: p(16),
+      };
+    }
+
+    function drawOctaBone(ctx, a, b, thickness, fill, strokeCol) {
+      if (!a || !b) return;
+      const dx = b[0] - a[0], dy = b[1] - a[1];
+      const len = Math.hypot(dx, dy);
+      if (len < 1) return;
+      const ux = dx / len, uy = dy / len;
+      const px = -uy, py = ux;
+      const w = thickness ?? Math.max(3.2, len * 0.11);
+      const c1 = [a[0] + ux * len * 0.22 + px * w, a[1] + uy * len * 0.22 + py * w];
+      const c2 = [a[0] + ux * len * 0.82 + px * w * 0.22, a[1] + uy * len * 0.82 + py * w * 0.22];
+      const c3 = [a[0] + ux * len * 0.82 - px * w * 0.22, a[1] + uy * len * 0.82 - py * w * 0.22];
+      const c4 = [a[0] + ux * len * 0.22 - px * w, a[1] + uy * len * 0.22 - py * w];
+      ctx.beginPath();
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(c1[0], c1[1]);
+      ctx.lineTo(c2[0], c2[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.lineTo(c3[0], c3[1]);
+      ctx.lineTo(c4[0], c4[1]);
+      ctx.closePath();
+      ctx.fillStyle = fill;
+      ctx.fill();
+      ctx.strokeStyle = strokeCol;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    function drawSkeleton2(ctx, pts, map) {
+      const showFace = document.getElementById('showFace').checked;
+      const showHands = document.getElementById('showHands').checked;
+      const showScores = document.getElementById('showScores').checked;
+      ctx.lineWidth = 2.2;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#6ee7b7';
+      BODY_BONES.forEach(([a, b]) => stroke(ctx, map(pts[a]), map(pts[b])));
+      if (showHands && pts.length >= 133) {
+        ctx.strokeStyle = '#93c5fd';
+        HAND_BONES.forEach(([a, b]) => stroke(ctx, map(pts[91 + a]), map(pts[91 + b])));
+        HAND_BONES.forEach(([a, b]) => stroke(ctx, map(pts[112 + a]), map(pts[112 + b])));
+      }
+      pts.forEach((p, i) => {
+        if (i >= 23 && i < 91 && !showFace) return;
+        if (i >= 91 && !showHands) return;
+        const [x, y] = map(p);
+        ctx.fillStyle = i < 17 ? '#6ee7b7' : i < 91 ? '#fcd34d' : '#93c5fd';
+        ctx.beginPath(); ctx.arc(x, y, i < 17 ? 3.4 : 2, 0, Math.PI * 2); ctx.fill();
+        if (showScores && pose.scores) {
+          ctx.fillStyle = '#cbd5e1';
+          ctx.font = '10px sans-serif';
+          ctx.fillText(Number(pose.scores[i]).toFixed(1), x + 4, y - 4);
+        }
+      });
+    }
+
+    function stroke(ctx, a, b) {
+      if (!a || !b || a.some((n) => Number.isNaN(n)) || b.some((n) => Number.isNaN(n))) return;
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    }
+
+    function draw3d() {
+      const dpr = fitCanvas(c3d);
+      ctx3.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const w = c3d.width / dpr, h = c3d.height / dpr;
+
+      const g = ctx3.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, '#121826');
+      g.addColorStop(0.55, '#0c1018');
+      g.addColorStop(1, '#07090d');
+      ctx3.fillStyle = g;
+      ctx3.fillRect(0, 0, w, h);
+
+      if (!pose) return;
+      const raw3 = pose.keypoints_3d || [];
+      if (!raw3.length) return;
+      const showFace = document.getElementById('showFace').checked;
+      const showHands = document.getElementById('showHands').checked;
+
+      // The 3D view uses the pose-lifter output directly. The 2D overlay
+      // remains independent and continues to use detector coordinates.
+
+      const src = raw3.map((p) => [
+        Number(p[0]),
+        Number(p[1]),
+        Number(p[2]),
+      ]);
+      const cx = src.reduce((s, p) => s + p[0], 0) / src.length;
+      const cy = src.reduce((s, p) => s + p[1], 0) / src.length;
+      const cz = src.reduce((s, p) => s + p[2], 0) / src.length;
+      let pts = src.map(([x, y, z]) => [x - cx, cy - y, -(z - cz)]);
+      const extent = Math.max(...pts.map((p) => Math.hypot(p[0], p[1])), 1);
+      const bodyScale = 240 / extent;
+      pts = pts.map((p) => [p[0] * bodyScale, p[1] * bodyScale, p[2] * bodyScale]);
+      const groundY = Math.min(...pts.map((p) => p[1])) - 4;
+      const midY = (Math.min(...pts.map((p) => p[1])) + Math.max(...pts.map((p) => p[1]))) / 2;
+
+      const focal = Math.min(w, h) * 1.35;
+      const camDist = 430 * cam.dist;
+      const cyw = Math.cos(cam.yaw), syw = Math.sin(cam.yaw);
+      const cpi = Math.cos(cam.pitch), spi = Math.sin(cam.pitch);
+
+      const project = (p) => {
+        const [x, y, z] = p;
+        const x1 = x * cyw + z * syw;
+        const z1 = -x * syw + z * cyw;
+        const y2 = (y - midY) * cpi - z1 * spi;
+        const z2 = (y - midY) * spi + z1 * cpi;
+        const depth = camDist - z2;
+        if (depth < 40) return null;
+        // Use orthographic projection for pose inspection. Perspective
+        // magnifies near joints after rotation and makes one skeleton look
+        // like it changes bone lengths between front and side views.
+        const f = focal / camDist;
+        return [w * 0.5 + x1 * f, h * 0.52 - y2 * f, depth, f];
+      };
+
+      const gridN = 16;
+      const step = 36;
+      const half = gridN * step;
+      const gridLines = [];
+      for (let i = -gridN; i <= gridN; i++) {
+        const t = i * step;
+        gridLines.push([[-half, groundY, t], [half, groundY, t]]);
+        gridLines.push([[t, groundY, -half], [t, groundY, half]]);
+      }
+      gridLines.forEach(([a, b], idx) => {
+        const pa = project(a), pb = project(b);
+        if (!pa || !pb) return;
+        const k = Math.abs((idx % (gridN * 2 + 1)) - gridN) / gridN;
+        const major = idx % 4 === 0;
+        ctx3.strokeStyle = major
+          ? `rgba(110, 160, 200, ${0.28 * (1 - k * 0.55)})`
+          : `rgba(70, 100, 130, ${0.14 * (1 - k * 0.55)})`;
+        ctx3.lineWidth = major ? 1.2 : 0.7;
+        stroke(ctx3, pa, pb);
+      });
+
+      const shadows = pts.slice(0, 17).map((p) => project([p[0], groundY, p[2]])).filter(Boolean);
+      shadows.forEach((p) => {
+        ctx3.fillStyle = 'rgba(0,0,0,0.28)';
+        ctx3.beginPath();
+        ctx3.ellipse(p[0], p[1], 7 * (p[3] || 1), 3.2 * (p[3] || 1), 0, 0, Math.PI * 2);
+        ctx3.fill();
+      });
+
+      const proj = pts.map(project);
+      const showRig = document.getElementById('showRig').checked;
+      const bones = [];
+      if (showRig) {
+        const rig = rigFromPoints(pts);
+        if (rig) {
+          RIG_BONES.forEach(([a, b]) => {
+            const pa = project(rig[a]), pb = project(rig[b]);
+            if (pa && pb) bones.push({ pa, pb, body: true, octa: true });
+          });
+        }
+      } else {
+        BODY_BONES.forEach(([a, b]) => {
+          if (proj[a] && proj[b]) bones.push({ pa: proj[a], pb: proj[b], body: true, octa: false });
+        });
+      }
+      if (showHands && proj.length >= 133) {
+        HAND_BONES.forEach(([a, b]) => {
+          if (proj[91 + a] && proj[91 + b]) bones.push({ pa: proj[91 + a], pb: proj[91 + b], body: false, octa: showRig });
+          if (proj[112 + a] && proj[112 + b]) bones.push({ pa: proj[112 + a], pb: proj[112 + b], body: false, octa: showRig });
+        });
+      }
+      bones.sort((u, v) => ((v.pa[2] + v.pb[2]) - (u.pa[2] + u.pb[2])));
+      ctx3.lineCap = 'round';
+      bones.forEach(({ pa, pb, body, octa }) => {
+        const near = 1 / Math.max(0.35, ((pa[2] + pb[2]) / 2) / camDist);
+        if (octa) {
+          const fill = body ? `rgba(110,231,183,${0.55 + near * 0.35})` : `rgba(147,197,253,${0.55 + near * 0.35})`;
+          const strokeCol = body ? '#34d399' : '#60a5fa';
+          drawOctaBone(ctx3, pa, pb, (body ? 9 : 3.2) * near, fill, strokeCol);
+        } else {
+          ctx3.strokeStyle = body ? '#6ee7b7' : '#93c5fd';
+          ctx3.globalAlpha = Math.min(1, 0.45 + near * 0.55);
+          ctx3.lineWidth = (body ? 3.4 : 2.0) * near;
+          stroke(ctx3, pa, pb);
+          ctx3.globalAlpha = 1;
+        }
+      });
+
+      const dots = [];
+      if (showRig) {
+        const rig = rigFromPoints(pts);
+        if (rig) Object.values(rig).forEach((p) => { const q = project(p); if (q) dots.push({ p: q, raw: false }); });
+      } else {
+        proj.forEach((p, i) => {
+          if (!p) return;
+          if (i >= 23 && i < 91 && !showFace) return;
+          if (i >= 91 && !showHands) return;
+          if (i >= 17 && i < 23) dots.push({ p, raw: true });
+          else if (i < 17) dots.push({ p, raw: true });
+          else if (showHands && i >= 91) dots.push({ p, raw: true });
+          else if (showFace && i >= 23 && i < 91) dots.push({ p, raw: true });
+        });
+      }
+      dots.sort((a, b) => b.p[2] - a.p[2]);
+      dots.forEach(({ p, raw }) => {
+        const near = 1 / Math.max(0.35, p[2] / camDist);
+        ctx3.fillStyle = raw ? '#ecfeff' : '#ecfeff';
+        ctx3.beginPath();
+        ctx3.arc(p[0], p[1], (raw ? 3.6 : 3.2) * near, 0, Math.PI * 2);
+        ctx3.fill();
+      });
+      if (showFace && !showRig) {
+        proj.forEach((p, i) => {
+          if (!p || i < 23 || i >= 91) return;
+          ctx3.fillStyle = '#fde68a';
+          ctx3.beginPath(); ctx3.arc(p[0], p[1], 1.5, 0, Math.PI * 2); ctx3.fill();
+        });
+      }
+    }
+
+    window.addEventListener('resize', drawAll);
+
+    if (window.POSE_DATA) {
+      pose = window.POSE_DATA;
+      if (window.POSE_IMAGE) {
+        loadImage(window.POSE_IMAGE).then((img) => { sourceImage = img; drawAll(); });
+      }
+      renderMeta();
+      drawAll();
+    }
+  </script>
+</body>
+</html>
